@@ -1,0 +1,283 @@
+1. Metagenomic data analysis
+biobakery_workflows wmgx --input Sample.fastq --output Sample.fastq --bypass-strain-profiling --threads 16 --pair-identifier _1 --remove-intermediate-output --qc-options "--trimmomatic /home/chlx/miniconda3/envs/biobakery/share/trimmomatic-0.39-2/"
+
+2. Statistical methods and visualization
+
+2.1 Alpha diversity (R)
+rm(list=ls())
+library(vegan)
+library(ggplot2)
+library("openxlsx")
+setwd("D:/ACS/alpha_diversity")
+newdir1="species analyze/alpha"
+dir.create(newdir1, recursive=TRUE)
+
+cl_list = c("species", "genus", "class", "family", "order", "phylum")
+
+for (cl in cl_list){
+  
+  otu_table  <-  read.delim(paste0(cl,".txt"), header=T, sep="\t", row.names=1, stringsAsFactors = FALSE)
+  metadata <- read.table( "group.txt", header=T, row.names=1, sep="\t", comment.char="", stringsAsFactors = F)
+  otu_table <- otu_table[,rownames(metadata)]
+  
+  
+  otu=t(otu_table)
+  Shannon = vegan::diversity(otu, index = "shannon")
+  Simpson = vegan::diversity(otu, index = "simpson")
+  InvSimpson = vegan::diversity(otu, index = "invsimpson")
+  alpha_div = cbind(Shannon, Simpson, InvSimpson)
+  write.csv(alpha_div, file=paste0("alpha.",cl,".csv"), append = T, quote = F, eol = "", row.names = F, col.names = F)
+  suppressWarnings(write.csv(alpha_div, file=paste0("alpha.",cl,".csv"), append = T,quote = F, sep=",", eol = "\n", na = "NA", dec = "."))
+  write.xlsx(alpha_div, paste0(newdir1,"/alpha.xlsx"),
+             sheetName = cl, append = TRUE,
+             col.names = TRUE,
+             row.names = TRUE)
+  
+  
+  metadata = read.table("group.txt", header=T, row.names=1, sep="\t", comment.char="", stringsAsFactors = F)
+  alpha_div = alpha_div
+  alpha_div00 <- merge(alpha_div,metadata,by = "row.names")
+  
+  Shannon_p<-kruskal.test(Shannon~Group, data = alpha_div00)
+  Simpson_p<-kruskal.test(Simpson~Group, data = alpha_div00)
+  InvSimpson_p<-kruskal.test(InvSimpson~Group, data = alpha_div00)
+  
+  
+  diversity.p = cbind(Shannon_p, Simpson_p, InvSimpson_p)
+  diversity.p.t <- t(diversity.p)
+  diversity.p.t
+  
+  write.xlsx(diversity.p.t, paste0(newdir1,"/alpha.p.xlsx"),
+             sheetName = cl, append = TRUE,
+             col.names = TRUE,
+             row.names = TRUE)
+  
+  
+  
+}
+
+
+
+
+library(ggplot2)
+library(amplicon)
+
+groupID = "Group"
+
+boxplot.part1 <- function (index = "Barcode") 
+{
+  p_list = c("ggplot2", "dplyr", "multcompView")
+  for (p in p_list) {
+    if (!requireNamespace(p)) {
+      install.packAge(p)
+    }
+    library(p, character.only = TRUE, quietly = TRUE, warn.conflicts = FALSE)
+  }
+  idx = rownames(metadata) %in% rownames(alpha_div)
+  idx  
+  metadata = metadata[idx, , drop = F]
+  metadata
+  alpha_div = alpha_div[rownames(metadata), ]
+  alpha_div
+  sampFile = as.data.frame(metadata[, groupID], row.names = row.names(metadata))
+  sampFile
+  df = cbind(alpha_div[rownames(sampFile), index], sampFile)
+  df
+  colnames(df) = c(index, "group")
+  df
+  
+  library(ggpubr)
+  
+  library(ggsci)
+  library(ggrepel)
+  
+  df$group<- factor(df$group,
+                    levels = c("control","case0","case1","case2"),ordered = TRUE)
+  p = ggplot(df, aes(x = group, y = .data[[index]], color = group)) + 
+    geom_boxplot(alpha = 1,size = 1.2, width = 0.5, 
+                 fill = "transparent",outlier.shape = NA)+
+    
+    labs(x = "Groups", y = paste(index),color = groupID) +
+    theme(axis.text=element_text(size=12),
+          axis.title.y=element_text(size=20,face="bold"),
+          axis.line = element_line(colour = 'black', size = 0.75),
+          legend.position = "top",
+          text = element_text(family = "sans",size = 10),
+          panel.background = element_rect(fill = 'white'),
+          legend.key = element_rect(fill = 'white'))+
+    geom_jitter(position = position_jitter(0.17), size = 1,alpha = 0.7,shape=16)+
+    geom_signif(comparisons = list(c("control","case0"),c("control","case1"),c("control","case2"),c("case0","case1"),c("case0","case2"),c("case1","case2")),
+                map_signif_level = T,
+                test =wilcox.test,
+                step_increase = -1,
+                tip_length=0,
+                size=0.9, 
+                col = "black",
+                textsize = 5,
+                vjust = 0,
+                position = "identity",
+    )
+  
+  
+  
+  p
+  
+}
+
+
+newdir2="species analyze/alpha/alpha picture"
+dir.create(newdir2, recursive=TRUE)
+
+library(htmlwidgets)
+library(tidyverse)
+library(plotly)
+cl_list = c("species", "genus", "class", "family", "order", "phylum")
+for (cl in cl_list){
+  p_list = c("Shannon", "Simpson", "InvSimpson")
+  for (i in p_list){
+    metadata = read.table("group.txt", header=T, row.names=1, sep="\t", comment.char="", stringsAsFactors = F)
+    alpha_div = read.table(paste0("alpha.",cl,".csv"), header=T, row.names=1, sep=",", comment.char="")
+    (p1 <- boxplot.part1(index = i))
+    (p1.1 <- p1 +ylab(paste0(i," index in ",cl," level"))+scale_color_aaas(a=0.55))
+    newdir2=paste0("species analyze/alpha/alpha picture1/",cl)
+    dir.create(newdir2, recursive=TRUE)
+    ggsave(path = newdir2, filename =paste0(i," index in ",cl," level.1.pdf"), p1.1, width = 80, height = 150, units="mm")
+    ggsave(path = newdir2, filename =paste0(i," index in ",cl," level.1.png"), p1.1, width=80, height=150, units="mm")
+  }
+}
+
+
+(p1 <- boxplot.part1(index = i))
+ggsave(path = newdir2, filename =paste0(i," index in ",cl," level.1.pdf"), p1.1, width = 80, height = 150, units="mm")
+ggsave(path = newdir2, filename =paste0(i," index in ",cl," level.1.png"), p1.1, width=80, height=150, units="mm")
+
+
+
+cl_list = c("species", "genus", "class", "family", "order", "phylum")
+for (cl in cl_list){
+  p_list = c("Shannon", "Simpson", "InvSimpson")
+  for (i in p_list){
+    metadata = read.table("group.txt", header=T, row.names=1, sep="\t", comment.char="", stringsAsFactors = F)
+    alpha_div = read.table(paste0("alpha.",cl,".csv"), header=T, row.names=1, sep=",", comment.char="")
+    (p1 <- boxplot.part1(index = i))
+    (p1.1 <- p1 +ylab(paste0(i," index in ",cl," level"))+scale_color_d3(a=0.55))
+    newdir5=paste0("species analyze/alpha/alpha picture2/",cl)
+    dir.create(newdir5, recursive=TRUE)
+    ggsave(path = newdir5, filename =paste0(i," index in ",cl," level.2.pdf"), p1.1, width = 80, height = 150, units="mm")
+    ggsave(path = newdir5, filename =paste0(i," index in ",cl," level.2.png"), p1.1, width=80, height=150, units="mm")
+  }
+}
+
+
+
+2.2 Beta diversity (R)
+#PCOA
+library(vegan)
+otu <- read.delim('species.txt', row.names = 1, sep = '\t', stringsAsFactors = FALSE, check.names = FALSE)
+otu <- data.frame(t(otu))
+group <- read.delim('group.txt', sep = '\t', stringsAsFactors = FALSE)
+
+otuput <- data.frame(adonis_result_otu$aov.tab, check.names = FALSE, stringsAsFactors = FALSE)
+otuput <- cbind(rownames(otuput), otuput)
+names(otuput) <- c('', 'Df', 'Sums of squares', 'Mean squares', 'F.Model', 'Variation (R2)', 'Pr (>F)')
+
+group_name <- unique(group$Group)
+
+adonis_result_two <- NULL
+for (i in 1:(length(group_name) - 1)) {
+  for (j in (i + 1):length(group_name)) {
+    group_ij <- subset(group, Group %in% c(group_name[i], group_name[j]))
+    otu_ij <- otu[group_ij$names, ]
+    adonis_result_two <- rbind(adonis_result_two, c(paste(group_name[i], group_name[j], sep = '/'), 'Bray-Curtis', unlist(data.frame(adonis_result_otu_ij$aov.tab, check.names = FALSE)[1, ])))
+  }
+}
+adonis_result_two <- data.frame(adonis_result_two, stringsAsFactors = FALSE)
+names(adonis_result_two) <- c('group', 'distance', 'Df', 'Sums of squares', 'Mean squares', 'F.Model', 'Variation (R2)', 'Pr (>F)')
+
+for (i in 1:nrow(adonis_result_two)) {
+  if (adonis_result_two[i, 'Pr (>F)'] <= 0.001) adonis_result_two[i, 'Sig'] <- '***'
+  else if (adonis_result_two[i, 'Pr (>F)'] <= 0.01) adonis_result_two[i, 'Sig'] <- '**'
+  else if (adonis_result_two[i, 'Pr (>F)'] <= 0.05) adonis_result_two[i, 'Sig'] <- '*'
+}
+
+
+library(vegan)
+distance <- vegdist(otu, method = 'bray')
+pcoa <- cmdscale(distance, k = (nrow(otu) - 1), eig = TRUE)
+ordiplot(scores(pcoa)[ ,c(1, 2)], type = 't')
+point <- data.frame(pcoa$point)
+
+species <- wascores(pcoa$points[,1:2], otu)
+
+
+pcoa_eig <- (pcoa$eig)[1:2] / sum(pcoa$eig)
+
+sample_site <- data.frame({pcoa$point})[1:2]
+sample_site$names <- rownames(sample_site)
+
+names(sample_site)[1:2] <- c('PCoA1', 'PCoA2')
+sample_site <- merge(sample_site, group, by = 'names', all.x = TRUE)
+sample_site$Group <- factor(sample_site$Group, levels = c('Biliary origin','Hyperlipidemic'))
+
+library(plyr)
+group_border <- ddply(sample_site, 'Group', function(df) df[chull(df[[2]], df[[3]]), ])
+library(ggplot2)
+dune_adonis <- paste0(" P-value: ", otuput[1,7])
+
+pcoa_plot <- ggplot(sample_site, aes(PCoA1, PCoA2, group = Group)) +
+  geom_vline(xintercept = 0, color = 'gray', size = 0.7) + 
+  geom_hline(yintercept = 0, color = 'gray', size = 0.7) +
+  stat_ellipse(aes(fill = Group), geom = 'polygon', level = 0.68, alpha = 0.1, show.legend = FALSE) +
+  theme(panel.grid.major = element_line(color = 'gray', size = 0.1), panel.background = element_rect(color = 'black', fill = 'transparent'),
+        plot.title = element_text(hjust = 0.5)) +
+  geom_point(aes(color = Group), size = 2, alpha = 0.8) + 
+  labs(x = paste('PC1(', round(100 * pcoa_eig[1], 2), '%)'), y = paste('PC2(', round(100 * pcoa_eig[2], 2), '%)'),title=dune_adonis)+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())+
+  theme(axis.title.x =element_text(size=8), axis.title.y=element_text(size=8))+
+  theme(axis.text.x=element_text(size=7),axis.text.y=element_text(size=7))+
+  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank())+
+  theme(axis.ticks.x = element_blank(),axis.text.x = element_blank())+
+  xlim(-0.25, 0.25)
+pcoa_plot
+ggsave('PCoA.pdf', pcoa_plot, width = 6, height = 5)
+
+
+2.3 Species composition of differential pathways 
+humann_barplot --input genefamilies_remove.tsv --output UniRef90_D4V689.pdf --focal-feature UniRef90_D4V689   --sort sum
+2.4 Spearman correlation
+pathway <- read.table('pathway_diff.txt', sep = '\t', row.names = 1, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+species <- read.table('species_diff0-1-2.txt', sep = '\t', row.names = 1, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+dat <- read.table('data_species-pathway', sep = '\t', row.names = 1, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+cov_pearson <- cov(dat, method = 'pearson')
+cov_spearman <- cov(dat, method = 'spearman')
+cov_kendall <- cov(dat, method = 'kendall')
+cor_pearson <- cor(dat, method = 'pearson')
+cor_spearman <- cor(dat, method = 'spearman')
+cor_kendall <- cor(dat, method = 'kendall')
+species_pathway_spearman <- cor(dat_species, dat_pathway, method = 'spearman')
+library(psych)
+species_corr <- corr.test(dat_species, method = 'spearman')
+pathway_corr <- corr.test(dat_pathway, method = 'spearman')
+species_pathway_corr <- corr.test(dat_species, dat_pathway, method = 'spearman')
+write.csv(species_pathway_corr$r, 'species_pathway_corr_r.csv', quote = FALSE)
+write.csv(species_pathway_corr$p, 'species_pathway_corr_p.csv', quote = FALSE)
+species_corr$p[species_corr$p >= 0.05] <- -1
+species_corr$p[species_corr$p < 0.05 & species_corr$p >= 0] <- 1
+species_corr$p[species_corr$p == -1] <- 0
+species_corr$r[abs(species_corr$r) < 0.3] <- 0
+species_corr_final <- species_corr$r * species_corr$p
+write.csv(species_corr_final, 'species_corr_final.csv', quote = FALSE)
+pathway_corr$p[pathway_corr$p >= 0.05] <- -1
+pathway_corr$p[pathway_corr$p < 0.05 & pathway_corr$p >= 0] <- 1
+pathway_corr$p[pathway_corr$p == -1] <- 0
+pathway_corr$r[abs(pathway_corr$r) < 0.3] <- 0
+pathway_corr_final <- pathway_corr$r * pathway_corr$p
+write.csv(pathway_corr_final, 'pathway_corr_final.csv', quote = FALSE)
+library(corrplot)
+corrplot(species_corr_final, method = 'number', number.cex = 0.8, diag = FALSE, tl.cex = 0.8)
+corrplot(species_corr_final, add = TRUE, type = 'upper', method = 'pie', diag = FALSE, tl.pos = 'n', cl.pos = 'n')
+corrplot(species_pathway_corr$r, p.mat = species_pathway_corr$p, method = 'number')
